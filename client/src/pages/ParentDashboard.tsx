@@ -1,13 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Heart, BookOpen, Lock, Sparkles, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Users, Heart, BookOpen, Lock, Sparkles, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 export const ParentDashboard: React.FC = () => {
   const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getParentDashboard().then(res => setData(res)).catch(console.error);
+    loadDashboard();
   }, []);
+
+  const loadDashboard = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await api.getParentDashboard();
+      setData(res);
+    } catch (err: any) {
+      console.error('Failed to load parent dashboard:', err);
+      setError(err?.message || 'Access restricted to authorized parents and guardians.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 space-y-3">
+        <div className="w-10 h-10 rounded-2xl bg-lavender-600 animate-spin flex items-center justify-center text-white font-bold">
+          🌸
+        </div>
+        <p className="text-xs font-bold text-slate-600">Loading Parent & Guardian Dashboard...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 rounded-3xl bg-rose-50 border border-rose-200 text-rose-800 space-y-2">
+        <div className="flex items-center gap-2 font-bold text-sm">
+          <AlertCircle className="w-4 h-4 text-rose-600" />
+          <span>Parent Access Restricted</span>
+        </div>
+        <p className="text-xs">{error}</p>
+        <p className="text-[11px] text-rose-600">Please switch to a verified parent account (e.g. Mrs. Sunita Sharma) in the top navbar.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -35,7 +75,7 @@ export const ParentDashboard: React.FC = () => {
         <Lock className="w-4 h-4 text-lavender-700 shrink-0 mt-0.5" />
         <div>
           <span className="font-bold">Adolescent Privacy Assurance: </span>
-          {data?.privacyNotice}
+          {data?.privacyNotice || 'Personal journal entries and confidential counsellor dialogues remain strictly shielded between the student and certified professionals.'}
         </div>
       </div>
 

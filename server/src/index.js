@@ -10,6 +10,8 @@ import wellbeingRoutes from './routes/wellbeing.js';
 import companionRoutes from './routes/companion.js';
 import supportRoutes from './routes/support.js';
 import dashboardRoutes from './routes/dashboards.js';
+import { cookieParser, authenticateSession } from './middleware/auth.js';
+import { csrfProtection } from './middleware/csrf.js';
 
 dotenv.config();
 
@@ -20,8 +22,50 @@ const clientDistPath = path.resolve(__dirname, '../../client/dist');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// Reverse proxy configuration: Only trust proxy if explicitly configured for known infrastructure
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', process.env.TRUST_PROXY);
+}
+
+// Allowed origins for CORS and CSRF
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000'
+];
+if (process.env.APP_ORIGIN) {
+  allowedOrigins.push(process.env.APP_ORIGIN);
+}
+
+if (process.env.NODE_ENV === 'production' && !process.env.APP_ORIGIN) {
+  console.warn('[SECURITY WARNING] APP_ORIGIN is not set in production. Browser requests will fail CSRF origin verification.');
+}
+
+// CORS configuration supporting credentials (cookies)
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    if (process.env.NODE_ENV === 'test') {
+      try {
+        const u = new URL(origin);
+        if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') {
+          return callback(null, true);
+        }
+      } catch (e) {}
+    }
+    return callback(null, false);
+  },
+  credentials: true
+}));
+
+app.use(cookieParser);
 app.use(express.json());
+app.use(authenticateSession);
+app.use(csrfProtection);
 
 // Request logging middleware for transparency
 app.use((req, res, next) => {

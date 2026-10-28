@@ -554,10 +554,16 @@ function localGenerateCompanionReply(characterId: string, customDetails: any, go
   };
 }
 
-// Helper to safely execute fetch with fallback
+// Helper to safely execute fetch with same-origin credentials for HttpOnly cookies
 async function safeFetch<T>(url: string, options?: RequestInit, fallback?: () => T): Promise<T> {
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(url, {
+      credentials: 'same-origin',
+      ...options,
+      headers: {
+        ...(options?.headers || {})
+      }
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const contentType = res.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
@@ -572,25 +578,82 @@ async function safeFetch<T>(url: string, options?: RequestInit, fallback?: () =>
 
 // ================= API CLIENT WITH AUTOMATIC GITHUB PAGES FALLBACK =================
 export const api = {
-  // Auth & Roles
+  // Auth & Sessions
+  async bootstrapDemoSession(userId?: string, role?: string): Promise<{ success: boolean; user: User }> {
+    const res = await safeFetch<{ success: boolean; user: User }>(`${API_BASE}/auth/demo-bootstrap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, role })
+    });
+    if (res?.user) currentUser = res.user;
+    return res;
+  },
+
+  async login(credentials: { email?: string; password?: string; userId?: string }): Promise<{ success: boolean; user: User }> {
+    const res = await safeFetch<{ success: boolean; user: User }>(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials)
+    });
+    if (res?.user) currentUser = res.user;
+    return res;
+  },
+
+  async register(data: {
+    name: string;
+    email: string;
+    password?: string;
+    ageGroup?: string;
+    examGoal?: string;
+    subjects?: string[];
+    dailyTargetHours?: number;
+    parentConsent?: boolean;
+  }): Promise<{ success: boolean; user: User }> {
+    const res = await safeFetch<{ success: boolean; user: User }>(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res?.user) currentUser = res.user;
+    return res;
+  },
+
+  async logout(): Promise<{ success: boolean; message: string }> {
+    currentUser = LOCAL_USERS[0];
+    return safeFetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+  },
+
   async getDemoUsers(): Promise<{ users: User[] }> {
     return safeFetch(`${API_BASE}/auth/demo-users`, undefined, () => ({ users: LOCAL_USERS }));
   },
 
-  async getCurrentUser(): Promise<{ user: User }> {
-    return safeFetch(`${API_BASE}/auth/me`, undefined, () => ({ user: currentUser }));
+  async getCurrentUser(): Promise<{ user: User | null }> {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (res.status === 401) {
+      return { user: null };
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (data?.user) currentUser = data.user;
+    return { user: data.user || null };
   },
 
   async switchRole(role: string, userId?: string): Promise<{ success: boolean; user: User }> {
-    return safeFetch(`${API_BASE}/auth/switch-role`, {
+    const res = await safeFetch<{ success: boolean; user: User }>(`${API_BASE}/auth/switch-role`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role, userId })
-    }, () => {
-      const found = LOCAL_USERS.find(u => (userId && u.id === userId) || u.role === role) || LOCAL_USERS[0];
-      currentUser = found;
-      return { success: true, user: found };
     });
+    if (res?.user) currentUser = res.user;
+    return res;
   },
 
   async updateConsent(consentGiven: boolean, emergencyContact: any): Promise<{ success: boolean; user: User }> {
@@ -598,10 +661,6 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ consentGiven, emergencyContact })
-    }, () => {
-      currentUser.consentGiven = consentGiven;
-      if (emergencyContact) currentUser.emergencyContact = emergencyContact;
-      return { success: true, user: currentUser };
     });
   },
 
@@ -629,7 +688,7 @@ export const api = {
     return safeFetch(`${API_BASE}/academic/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...data, studentId: key })
+      body: JSON.stringify({ ...data, ...(studentId ? { studentId } : {}) })
     }, () => {
       if (!LOCAL_TODO_TASKS[key]) LOCAL_TODO_TASKS[key] = [];
       const newTask: TodoTask = {

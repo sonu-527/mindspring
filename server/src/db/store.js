@@ -1,4 +1,7 @@
 // Centralized in-memory store pre-populated with realistic demo data
+import { generateSessionToken, hashPassword } from '../middleware/security.js';
+
+const DEMO_PASSWORD_HASH = hashPassword('DemoPass123!');
 
 export const USERS = [
   {
@@ -6,6 +9,8 @@ export const USERS = [
     name: 'Aarav Sharma',
     email: 'aarav@mindspring.demo',
     role: 'student',
+    isDemoFixture: true,
+    passwordHash: DEMO_PASSWORD_HASH,
     ageGroup: '16-18',
     examGoal: 'JEE Main & Advanced 2027',
     targetScore: 'Rank < 1500 / 99.5 %ile',
@@ -25,6 +30,8 @@ export const USERS = [
     name: 'Priya Patel',
     email: 'priya@mindspring.demo',
     role: 'student',
+    isDemoFixture: true,
+    passwordHash: DEMO_PASSWORD_HASH,
     ageGroup: '16-18',
     examGoal: 'NEET-UG 2027',
     targetScore: '680 / 720',
@@ -44,6 +51,8 @@ export const USERS = [
     name: 'Sunita Sharma',
     email: 'sunita@mindspring.demo',
     role: 'parent',
+    isDemoFixture: true,
+    passwordHash: DEMO_PASSWORD_HASH,
     studentIds: ['student-1'],
     studentName: 'Aarav Sharma'
   },
@@ -52,6 +61,8 @@ export const USERS = [
     name: 'Dr. Ananya Roy, M.Phil',
     email: 'ananya@mindspring.demo',
     role: 'counsellor',
+    isDemoFixture: true,
+    passwordHash: DEMO_PASSWORD_HASH,
     specialization: 'Adolescent Psychology & Exam Performance Anxiety',
     licenseNumber: 'RCI-CLIN-2021-9844'
   },
@@ -59,7 +70,9 @@ export const USERS = [
     id: 'admin-1',
     name: 'Admin Safeguarding Desk',
     email: 'admin@mindspring.demo',
-    role: 'admin'
+    role: 'admin',
+    isDemoFixture: true,
+    passwordHash: DEMO_PASSWORD_HASH
   }
 ];
 
@@ -371,3 +384,74 @@ export const AUDIT_LOGS = [
     details: 'Viewed authorized syllabus completion and mock test trends. Sensitive wellbeing reflections remained shielded.'
   }
 ];
+
+
+export const TEACHERS = {
+  'student-1': [
+    {
+      id: 'tch-1',
+      name: 'Prof. Vikram Sen',
+      subject: 'Physics & Mechanics',
+      schoolOrCoaching: 'Apex Institute / Super-30 Cohort',
+      phone: '+91 98234 56789',
+      email: 'vikram.sen@faculty.demo',
+      availableHours: 'Mon-Fri 4:30 PM - 6:00 PM',
+      notes: 'Approachable for pacing fears and conceptual doubt clearing. Always reminds students to sleep 7 hours.',
+      isTrustedMentor: true
+    },
+    {
+      id: 'tch-2',
+      name: 'Mrs. Geeta Krishnan',
+      subject: 'Mathematics & Calculus',
+      schoolOrCoaching: 'Delhi Public School / Advanced Batch',
+      phone: '+91 98345 67890',
+      email: 'geeta.krishnan@faculty.demo',
+      availableHours: 'Tue & Thu 5:00 PM - 7:00 PM',
+      notes: 'Patient mentor who helps untangle test panic and formula slips without criticism.',
+      isTrustedMentor: true
+    }
+  ]
+};
+
+
+// ==========================================
+// In-Memory Active Sessions Store
+// ==========================================
+export const SESSIONS = new Map();
+
+export function createSession(userId, role, ttlMs = 24 * 60 * 60 * 1000) {
+  const token = generateSessionToken();
+  const session = {
+    id: token,
+    userId,
+    role,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + ttlMs
+  };
+  SESSIONS.set(token, session);
+  return { token, session };
+}
+
+export function getSession(token) {
+  if (!token || typeof token !== 'string') return null;
+  const session = SESSIONS.get(token);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now()) {
+    SESSIONS.delete(token);
+    return null;
+  }
+  return session;
+}
+
+export function revokeSession(token) {
+  if (!token) return false;
+  return SESSIONS.delete(token);
+}
+
+export function revokeAllUserSessions(userId) {
+  for (const [token, session] of SESSIONS.entries()) {
+    if (session.userId === userId) {
+      SESSIONS.delete(token);
+    }
+  }
+}

@@ -31,8 +31,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onTabChange, userR
 
   const roleNavItems = [
     { id: 'parent-view', label: 'Parent Dashboard', icon: Users, visible: true },
+    { id: 'counsellor-view', label: 'Counsellor Desk', icon: ShieldCheck, visible: userRole === 'counsellor' || userRole === 'admin' },
     { id: 'settings', label: 'Consent & Privacy', icon: Settings, visible: true }
-  ];
+  ].filter(item => item.visible);
 
   return (
     <aside className="w-full lg:w-64 bg-white border-r border-lavender-100 p-4 flex flex-col justify-between shrink-0 min-h-[calc(100vh-65px)]">

@@ -1,16 +1,39 @@
 import express from 'express';
-import { WELLBEING_ASSESSMENTS, MOOD_LOGS, PRIVATE_JOURNAL, AUDIT_LOGS } from '../db/store.js';
+import { requireRole } from '../middleware/auth.js';
+import {
+  WELLBEING_ASSESSMENTS,
+  MOOD_LOGS,
+  PRIVATE_JOURNAL,
+  AUDIT_LOGS
+} from '../db/store.js';
 
 const router = express.Router();
 
-function getStudentKey(req) {
-  return req.query.studentId || 'student-1';
+// Enforce student role on all wellbeing endpoints
+// Private journals and raw mood logs are strictly inaccessible to parents, counsellors, and admins
+router.use(requireRole('student'));
+
+/**
+ * Validates requested studentId against authenticated identity
+ * Returns 403 on mismatch; defaults to authenticated req.user.id
+ */
+function getValidatedStudentKey(req, res) {
+  const actingId = req.user.id;
+  const requestedId = req.query.studentId || req.body?.studentId;
+
+  if (requestedId && requestedId !== actingId) {
+    res.status(403).json({ error: "Forbidden: Access to another student's wellbeing data is prohibited" });
+    return null;
+  }
+  return actingId;
 }
 
 // Weekly Assessment
 router.get('/assessment', (req, res) => {
-  const key = getStudentKey(req);
-  const assessments = WELLBEING_ASSESSMENTS[key] || WELLBEING_ASSESSMENTS['student-1'];
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const assessments = WELLBEING_ASSESSMENTS[key] || [];
   res.json({
     assessments,
     disclaimer: 'The MindSpring Wellbeing Reflection is a self-care check-in tool designed to help you notice personal trends. It is strictly non-diagnostic and does not replace evaluation by a qualified medical professional.'
@@ -18,12 +41,12 @@ router.get('/assessment', (req, res) => {
 });
 
 router.post('/assessment', (req, res) => {
-  const key = getStudentKey(req);
-  const { mood, stress, sleep, energy, socialConnection, academicPressure, supportAccess, reflectionNotes } = req.body;
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const { mood, stress, sleep, energy, socialConnection, academicPressure, supportAccess, reflectionNotes } = req.body || {};
 
   // Compute non-diagnostic reflection index (scale 0-100)
-  // Positive factors: mood, sleep, energy, socialConnection, supportAccess (each 1-5)
-  // Inverse factors: stress, academicPressure (each 1-5, where 1 is low stress, 5 is high stress)
   const posScore = (Number(mood) || 3) + (Number(sleep) || 3) + (Number(energy) || 3) + (Number(socialConnection) || 3) + (Number(supportAccess) || 3);
   const negScore = (Number(stress) || 3) + (Number(academicPressure) || 3);
   
@@ -72,9 +95,9 @@ router.post('/assessment', (req, res) => {
     id: `log-${Date.now()}`,
     timestamp: new Date().toISOString(),
     actorRole: 'student',
-    actorName: 'Student Check-in',
+    actorName: req.user.name,
     action: 'WELLBEING_ASSESSMENT_COMPLETED',
-    details: `Weekly reflection saved. Consultation suggested: ${consultationSuggested}`
+    details: `Weekly reflection saved for ${req.user.name}. Consultation suggested: ${consultationSuggested}`
   });
 
   res.json({ success: true, assessment: newAssessment });
@@ -82,14 +105,18 @@ router.post('/assessment', (req, res) => {
 
 // Daily Mood
 router.get('/mood', (req, res) => {
-  const key = getStudentKey(req);
-  const moods = MOOD_LOGS[key] || MOOD_LOGS['student-1'];
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const moods = MOOD_LOGS[key] || [];
   res.json({ moodHistory: moods });
 });
 
 router.post('/mood', (req, res) => {
-  const key = getStudentKey(req);
-  const { mood, level, energy, note, tags } = req.body;
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const { mood, level, energy, note, tags } = req.body || {};
   if (!MOOD_LOGS[key]) MOOD_LOGS[key] = [];
 
   const newLog = {
@@ -101,7 +128,6 @@ router.post('/mood', (req, res) => {
     tags: tags || []
   };
 
-  // replace if today already logged or unshift
   const today = newLog.date;
   const existingIdx = MOOD_LOGS[key].findIndex(m => m.date === today);
   if (existingIdx >= 0) {
@@ -113,10 +139,12 @@ router.post('/mood', (req, res) => {
   res.json({ success: true, mood: newLog });
 });
 
-// Private Journal
+// Private Journal (Strictly Zero-Knowledge & Student-Only)
 router.get('/journal', (req, res) => {
-  const key = getStudentKey(req);
-  const entries = PRIVATE_JOURNAL[key] || PRIVATE_JOURNAL['student-1'];
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const entries = PRIVATE_JOURNAL[key] || [];
   res.json({
     entries,
     privacyNotice: 'Your journal is strictly private to you. MindSpring never shares journal text with teachers or parents without your explicit directive.'
@@ -124,8 +152,10 @@ router.get('/journal', (req, res) => {
 });
 
 router.post('/journal', (req, res) => {
-  const key = getStudentKey(req);
-  const { title, content, tags, mood } = req.body;
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const { title, content, tags, mood } = req.body || {};
   if (!PRIVATE_JOURNAL[key]) PRIVATE_JOURNAL[key] = [];
 
   const newEntry = {
@@ -142,8 +172,10 @@ router.post('/journal', (req, res) => {
 });
 
 router.delete('/journal/:id', (req, res) => {
-  const key = getStudentKey(req);
-  const list = PRIVATE_JOURNAL[key] || PRIVATE_JOURNAL['student-1'];
+  const key = getValidatedStudentKey(req, res);
+  if (!key) return;
+
+  const list = PRIVATE_JOURNAL[key] || [];
   const index = list.findIndex(e => e.id === req.params.id);
   if (index >= 0) {
     list.splice(index, 1);

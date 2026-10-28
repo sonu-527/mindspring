@@ -1,17 +1,38 @@
 import express from 'express';
-import { USERS, TODO_TASKS, MOCK_TESTS, CONSULTATION_REQUESTS, AUDIT_LOGS } from '../db/store.js';
+import { requireRole } from '../middleware/auth.js';
+import {
+  USERS,
+  TODO_TASKS,
+  MOCK_TESTS,
+  CONSULTATION_REQUESTS,
+  AUDIT_LOGS
+} from '../db/store.js';
 
 const router = express.Router();
 
-// Parent Dashboard
-router.get('/parent', (req, res) => {
-  const student = USERS.find(u => u.id === 'student-1');
-  const tasks = TODO_TASKS['student-1'] || [];
+// Parent Dashboard (Restricted to role 'parent' with verified student linkage)
+router.get('/parent', requireRole('parent'), (req, res) => {
+  const parent = req.user;
+  const requestedStudentId = req.query.studentId || parent.studentIds?.[0] || 'student-1';
+
+  // Verify that the requested student ID exists in the authenticated parent's trusted server-side studentIds
+  if (!parent.studentIds || !parent.studentIds.includes(requestedStudentId)) {
+    return res.status(403).json({
+      error: 'Forbidden: Access to student metrics is restricted to linked parents only'
+    });
+  }
+
+  const student = USERS.find(u => u.id === requestedStudentId);
+  if (!student) {
+    return res.status(404).json({ error: 'Linked student not found' });
+  }
+
+  const tasks = TODO_TASKS[requestedStudentId] || [];
   const completedCount = tasks.filter(t => t.completed).length;
-  const tests = MOCK_TESTS['student-1'] || [];
+  const tests = MOCK_TESTS[requestedStudentId] || [];
 
   res.json({
-    parentName: 'Mrs. Sunita Sharma',
+    parentName: parent.name,
     student: {
       name: student.name,
       examGoal: student.examGoal,
@@ -49,12 +70,12 @@ router.get('/parent', (req, res) => {
   });
 });
 
-// Counsellor Dashboard
-router.get('/counsellor', (req, res) => {
+// Counsellor Dashboard (Restricted to role 'counsellor')
+router.get('/counsellor', requireRole('counsellor'), (req, res) => {
   res.json({
     counsellor: {
-      name: 'Dr. Ananya Roy',
-      license: 'RCI-CLIN-2021-9844',
+      name: req.user.name,
+      license: req.user.licenseNumber || 'RCI-CLIN-2021-9844',
       activeCaseload: 8
     },
     triageQueue: CONSULTATION_REQUESTS,
@@ -66,8 +87,8 @@ router.get('/counsellor', (req, res) => {
   });
 });
 
-// Admin Dashboard
-router.get('/admin', (req, res) => {
+// Admin Dashboard (Restricted to role 'admin')
+router.get('/admin', requireRole('admin'), (req, res) => {
   res.json({
     systemHealth: 'Optimal',
     activeUsersCount: USERS.length,
